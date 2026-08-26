@@ -302,6 +302,7 @@ class BrowserToolExecutor(ToolExecutor[BrowserAction, BrowserObservation]):
         action_timeout_seconds: float = DEFAULT_BROWSER_ACTION_TIMEOUT_SECONDS,
         full_output_save_dir: str | None = None,
         inject_scripts: list[str] | None = None,
+        sandbox_session_id: str | None = None,
         **config,
     ):
         """Initialize BrowserToolExecutor with timeout protection.
@@ -325,6 +326,27 @@ class BrowserToolExecutor(ToolExecutor[BrowserAction, BrowserObservation]):
 
         def init_logic():
             nonlocal headless
+            if sandbox_session_id:
+                # SANDBOX MODE: Chromium runs INSIDE the Cloud Run sandbox
+                # session (same network namespace as the dev servers — visual
+                # verification reaches localhost). The trusted side connects
+                # over CDP; no local executable is needed.
+                from openhands.tools.browser_use.sandbox_browser import (
+                    launch_sandbox_chromium,
+                )
+
+                cdp_url = launch_sandbox_chromium(sandbox_session_id)
+                self._sandbox_session_id = sandbox_session_id
+                self._server = CustomBrowserUseServer(
+                    session_timeout_minutes=session_timeout_minutes,
+                )
+                self._config = {
+                    "headless": True,
+                    "allowed_domains": allowed_domains or [],
+                    "cdp_url": cdp_url,
+                    **config,
+                }
+                return
             executable_path = self._ensure_chromium_available()
             self._server = CustomBrowserUseServer(
                 session_timeout_minutes=session_timeout_minutes,
@@ -692,6 +714,13 @@ class BrowserToolExecutor(ToolExecutor[BrowserAction, BrowserObservation]):
             except Exception as e:
                 logger.warning(f"Error during browser cleanup: {e}")
             finally:
+                # SANDBOX MODE: also kill the in-session Chromium.
+                if getattr(self, "_sandbox_session_id", None):
+                    from openhands.tools.browser_use.sandbox_browser import (
+                        stop_sandbox_chromium,
+                    )
+
+                    stop_sandbox_chromium(self._sandbox_session_id)
                 try:
                     # Always close the async executor
                     self._async_executor.close()
