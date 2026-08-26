@@ -68,11 +68,12 @@ class TerminalExecutor(ToolExecutor[TerminalAction, TerminalObservation]):
         working_dir: str,
         username: str | None = None,
         no_change_timeout_seconds: int | None = None,
-        terminal_type: Literal["tmux", "subprocess", "powershell"] | None = None,
+        terminal_type: Literal["tmux", "subprocess", "powershell", "gcp-sandbox"] | None = None,
         shell_path: str | None = None,
         env: Mapping[str, str] | None = None,
         full_output_save_dir: str | None = None,
         max_panes: int = DEFAULT_MAX_PANES,
+        sandbox_session_id: str | None = None,
     ):
         """Initialize TerminalExecutor with auto-detected or specified session type.
 
@@ -81,7 +82,7 @@ class TerminalExecutor(ToolExecutor[TerminalAction, TerminalObservation]):
             username: Optional username for the shell session
             no_change_timeout_seconds: Timeout for no output change
             terminal_type: Force a specific session type:
-                         ('tmux', 'subprocess', or 'powershell').
+                         ('tmux', 'subprocess', 'powershell', or 'gcp-sandbox').
                          If None, auto-detect based on system capabilities.
             shell_path: Path to the shell binary. On Unix this applies to the
                        subprocess backend; on Windows it can point to a
@@ -90,6 +91,7 @@ class TerminalExecutor(ToolExecutor[TerminalAction, TerminalObservation]):
             full_output_save_dir: Path to directory to save full output
                                   logs and files, used when truncation is needed.
             max_panes: Maximum number of concurrent panes in pool mode.
+            sandbox_session_id: Cloud Run sandbox session id (gcp-sandbox only).
         """
         self.shell_path = shell_path
         self._working_dir = working_dir
@@ -119,6 +121,7 @@ class TerminalExecutor(ToolExecutor[TerminalAction, TerminalObservation]):
                 terminal_type=terminal_type,
                 shell_path=shell_path,
                 env=self._env,
+                sandbox_session_id=sandbox_session_id,
             )
             self._session.initialize()
             logger.info(

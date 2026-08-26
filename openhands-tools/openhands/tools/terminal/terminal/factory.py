@@ -86,9 +86,10 @@ def create_terminal_session(
     work_dir: str,
     username: str | None = None,
     no_change_timeout_seconds: int | None = None,
-    terminal_type: Literal["tmux", "subprocess", "powershell"] | None = None,
+    terminal_type: Literal["tmux", "subprocess", "powershell", "gcp-sandbox"] | None = None,
     shell_path: str | None = None,
     env: Mapping[str, str] | None = None,
+    sandbox_session_id: str | None = None,
 ) -> TerminalSession:
     """Create an appropriate terminal session based on system capabilities.
 
@@ -97,10 +98,13 @@ def create_terminal_session(
         username: Optional username for the session
         no_change_timeout_seconds: Timeout for no output change
         terminal_type: Force a specific session type ('tmux', 'subprocess',
-            or 'powershell'). If None, auto-detect based on system capabilities.
+            'powershell', or 'gcp-sandbox'). If None, auto-detect based on
+            system capabilities.
         shell_path: Path to the shell binary. On Unix this is used for the
             subprocess backend; on Windows it can point to a PowerShell binary.
         env: Extra environment variables to add to the terminal session.
+        sandbox_session_id: Cloud Run sandbox session id (gcp-sandbox only).
+            The tmux server + shell run INSIDE that sandbox session.
 
     Returns:
         TerminalSession instance
@@ -109,6 +113,23 @@ def create_terminal_session(
         RuntimeError: If the requested session type is not available
     """
     if terminal_type:
+        if terminal_type == "gcp-sandbox":
+            from openhands.tools.terminal.terminal.sandbox_terminal import (
+                SandboxTerminal,
+            )
+
+            logger.info(
+                f"Using SandboxTerminal (sandbox session: "
+                f"{sandbox_session_id or 'agent-workspace'})"
+            )
+            terminal = SandboxTerminal(
+                work_dir,
+                username,
+                env=env,
+                sandbox_session_id=sandbox_session_id,
+            )
+            return TerminalSession(terminal, no_change_timeout_seconds)
+
         if terminal_type == "tmux":
             if not _is_tmux_available():
                 raise RuntimeError("Tmux is not available on this system")

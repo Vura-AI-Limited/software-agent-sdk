@@ -285,11 +285,12 @@ class TerminalTool(ToolDefinition[TerminalAction, TerminalObservation]):
         conv_state: "ConversationState",
         username: str | None = None,
         no_change_timeout_seconds: int | None = None,
-        terminal_type: Literal["tmux", "subprocess", "powershell"] | None = None,
+        terminal_type: Literal["tmux", "subprocess", "powershell", "gcp-sandbox"] | None = None,
         shell_path: str | None = None,
         executor: ToolExecutor | None = None,
         *,
         env: Mapping[str, str] | None = None,
+        sandbox_session_id: str | None = None,
     ) -> Sequence["TerminalTool"]:
         """Initialize TerminalTool with executor parameters.
 
@@ -300,7 +301,7 @@ class TerminalTool(ToolDefinition[TerminalAction, TerminalObservation]):
             username: Optional username for the shell session
             no_change_timeout_seconds: Timeout for no output change
             terminal_type: Force a specific session type:
-                         ('tmux', 'subprocess', or 'powershell').
+                         ('tmux', 'subprocess', 'powershell', or 'gcp-sandbox').
                          If None, auto-detect based on system capabilities:
                          - On Windows: PowerShell-backed backend
                          - On Unix-like systems: tmux if available, otherwise subprocess
@@ -310,6 +311,8 @@ class TerminalTool(ToolDefinition[TerminalAction, TerminalObservation]):
             env: Extra environment variables to add to the terminal session.
                  These are client-controlled session settings and are not part
                  of the LLM-facing TerminalAction schema.
+            sandbox_session_id: Cloud Run sandbox session id (gcp-sandbox only).
+                 The tmux server + shell run INSIDE that sandbox session.
         """
         # Import here to avoid circular imports
         from openhands.tools.terminal.impl import TerminalExecutor
@@ -328,6 +331,7 @@ class TerminalTool(ToolDefinition[TerminalAction, TerminalObservation]):
                 shell_path=shell_path,
                 env=env,
                 full_output_save_dir=conv_state.env_observation_persistence_dir,
+                sandbox_session_id=sandbox_session_id,
             )
 
         tool_description = (
