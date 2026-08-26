@@ -26,8 +26,17 @@ class FileEditorExecutor(ToolExecutor):
         self,
         workspace_root: str | None = None,
         allowed_edits_files: list[str] | None = None,
+        sandbox_session_id: str | None = None,
     ):
-        self.editor: FileEditor = FileEditor(workspace_root=workspace_root)
+        if sandbox_session_id:
+            from openhands.tools.file_editor.sandbox_editor import SandboxFileEditor
+
+            self.editor: FileEditor = SandboxFileEditor(
+                workspace_root=workspace_root,
+                sandbox_session_id=sandbox_session_id,
+            )
+        else:
+            self.editor = FileEditor(workspace_root=workspace_root)
         self.allowed_edits_files: set[Path] | None = (
             {Path(f).resolve() for f in allowed_edits_files}
             if allowed_edits_files
