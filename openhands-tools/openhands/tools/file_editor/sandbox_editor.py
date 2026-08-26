@@ -87,7 +87,7 @@ class SandboxFileEditor(FileEditor):
         self._sb("mkdir", "-p", parent)
         # Payload via stdin-style heredoc is fragile through exec; use
         # printf with the base64 payload (safe charset: A-Za-z0-9+/=).
-        self._sb("sh", "-c", f"printf '%s' '{b64}' | base64 -d > '{path}'")
+        self._sb("/bin/sh", "-c", f"export PATH=/usr/local/bin:/usr/bin:/bin; printf '%s' '{b64}' | base64 -d > '{path}'")
 
     # ── overridden I/O surface ─────────────────────────────────────────
 
@@ -159,11 +159,11 @@ class SandboxFileEditor(FileEditor):
                 ),
             )
         # Binary check: NUL byte in the first 4KB.
-        head = self._sb("head", "-c", "4096", str(path), "|", "od", "-An", "-tx1")
+        head = self._sb("/usr/bin/head", "-c", "4096", str(path), "|", "/usr/bin/od", "-An", "-tx1")
         # od output is hex bytes; a "00" token means binary.
         # Simpler: use grep -c with a NUL pattern via shell.
         is_bin = self._sb_ok(
-            "sh", "-c", f"head -c 4096 '{path}' | grep -qP '\\x00'"
+            "/bin/sh", "-c", f"export PATH=/usr/local/bin:/usr/bin:/bin; head -c 4096 '{path}' | grep -qP '\\x00'"
         )
         ext = path.suffix.lower()
         from openhands.tools.file_editor.editor import IMAGE_EXTENSIONS
@@ -186,7 +186,7 @@ class SandboxFileEditor(FileEditor):
         # find with -maxdepth 1 mirrors the original's single-level listing
         # plus the root; formatting is inherited via _format_directory_entry
         # which needs Path objects — build them from the sandbox's listing.
-        out = self._sb("find", str(path), "-maxdepth", "1", "-mindepth", "0")
+        out = self._sb("/usr/bin/find", str(path), "-maxdepth", "1", "-mindepth", "0")
         names = [line for line in out.splitlines() if line.strip()]
         entries = [Path(n) for n in names]
         return [self._format_directory_entry(Path(str(path)), e) for e in entries]

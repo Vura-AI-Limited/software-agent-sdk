@@ -117,7 +117,7 @@ class SandboxTerminal(TerminalInterface):
         """Run a tmux command against the in-sandbox tmux server."""
         return _sandbox_exec(
             self._session_id,
-            ["tmux", "-L", SOCKET_NAME, *args],
+            ["/usr/bin/tmux", "-L", SOCKET_NAME, *args],
             timeout=timeout,
         )
 

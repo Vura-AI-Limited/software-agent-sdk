@@ -57,7 +57,7 @@ def launch_sandbox_chromium(
     # Kill any stale Chromium from a previous attempt in this session.
     _sandbox_exec(
         session_id,
-        ["sh", "-c", "pkill -f remote-debugging-port 2>/dev/null; true"],
+        ["/bin/sh", "-c", "export PATH=/usr/local/bin:/usr/bin:/bin; pkill -f remote-debugging-port 2>/dev/null; true"],
     )
     # Launch detached headless Chromium with CDP on the session's loopback.
     _sandbox_exec(
@@ -78,7 +78,7 @@ def launch_sandbox_chromium(
         try:
             out = _sandbox_exec(
                 session_id,
-                ["sh", "-c", f"curl -sf http://127.0.0.1:{cdp_port}/json/version"],
+                ["/bin/sh", "-c", f"export PATH=/usr/local/bin:/usr/bin:/bin; curl -sf http://127.0.0.1:{cdp_port}/json/version"],
                 timeout=5.0,
             )
             if out.strip():
@@ -91,7 +91,7 @@ def launch_sandbox_chromium(
         time.sleep(0.5)
     # Diagnose: dump the chromium log so the failure is visible.
     try:
-        log = _sandbox_exec(session_id, ["sh", "-c", "tail -20 /tmp/chromium.log"])
+        log = _sandbox_exec(session_id, ["/bin/sh", "-c", "export PATH=/usr/local/bin:/usr/bin:/bin; tail -20 /tmp/chromium.log"])
     except RuntimeError:
         log = "(log unavailable)"
     raise RuntimeError(
@@ -105,7 +105,7 @@ def stop_sandbox_chromium(session_id: str) -> None:
     try:
         _sandbox_exec(
             session_id,
-            ["sh", "-c", "kill $(cat /tmp/chromium.pid) 2>/dev/null; true"],
+            ["/bin/sh", "-c", "export PATH=/usr/local/bin:/usr/bin:/bin; kill $(cat /tmp/chromium.pid) 2>/dev/null; true"],
         )
     except RuntimeError as e:
         logger.debug(f"chromium stop: {e}")
