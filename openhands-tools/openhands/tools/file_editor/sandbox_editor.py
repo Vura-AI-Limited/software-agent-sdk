@@ -31,15 +31,18 @@ def _sandbox_exec(session_id: str, args: list[str], timeout: float = 60.0) -> st
 
     The sandbox exec environment has NO PATH set, so bare command
     names (mkdir, test, stat, mv, ...) fail with exit 1. Wrap every
-    call in /bin/sh -c with an explicit PATH export. Args are passed
-    as shell-quoted positional parameters ($1..) so no quoting bugs.
+    call in /bin/sh -c with an explicit PATH export, embedding each
+    arg shell-quoted directly into the command string. (Positional
+    parameters ($1..) do NOT work here: the sandbox CLI joins argv
+    through a shell, which expands $1 to empty BEFORE our /bin/sh
+    runs — observed 2026-08-27: every `test -d /` exited 1.)
 
     Raises RuntimeError on non-zero exit (no silent fallbacks).
     """
-    n = len(args)
-    params = " ".join(f'"${i}"' for i in range(1, n + 1))
-    sh_cmd = f"export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; {args[0]} {params}"
-    cmd = [SANDBOX_BIN, "exec", session_id, "--", "/bin/sh", "-c", sh_cmd, "sandbox_exec", *[str(a) for a in args[1:]]]
+    import shlex
+    quoted = " ".join(shlex.quote(str(a)) for a in args)
+    sh_cmd = f"export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; {quoted}"
+    cmd = [SANDBOX_BIN, "exec", session_id, "--", "/bin/sh", "-c", sh_cmd]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
         raise RuntimeError(
