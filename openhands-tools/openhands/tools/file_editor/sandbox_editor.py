@@ -29,9 +29,17 @@ SANDBOX_BIN = "/usr/local/gcp/bin/sandbox"
 def _sandbox_exec(session_id: str, args: list[str], timeout: float = 60.0) -> str:
     """Run one command inside the sandbox session; return stdout.
 
+    The sandbox exec environment has NO PATH set, so bare command
+    names (mkdir, test, stat, mv, ...) fail with exit 1. Wrap every
+    call in /bin/sh -c with an explicit PATH export. Args are passed
+    as shell-quoted positional parameters ($1..) so no quoting bugs.
+
     Raises RuntimeError on non-zero exit (no silent fallbacks).
     """
-    cmd = [SANDBOX_BIN, "exec", session_id, "--", *args]
+    n = len(args)
+    params = " ".join(f'"${i}"' for i in range(1, n + 1))
+    sh_cmd = f"export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; {args[0]} {params}"
+    cmd = [SANDBOX_BIN, "exec", session_id, "--", "/bin/sh", "-c", sh_cmd, "sandbox_exec", *[str(a) for a in args[1:]]]
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     if result.returncode != 0:
         raise RuntimeError(
@@ -87,7 +95,7 @@ class SandboxFileEditor(FileEditor):
         self._sb("mkdir", "-p", parent)
         # Payload via stdin-style heredoc is fragile through exec; use
         # printf with the base64 payload (safe charset: A-Za-z0-9+/=).
-        self._sb("/bin/sh", "-c", f"export PATH=/usr/local/bin:/usr/bin:/bin; printf '%s' '{b64}' | base64 -d > '{path}'")
+        self._sb("/bin/sh", "-c", f"export PATH=/usr/local/bin:/usr/bin:/bin; printf '%s' '{b64}' | base64 -d > '{path}'")  # noqa: G004 — b64 charset is shell-safe
 
     # ── overridden I/O surface ─────────────────────────────────────────
 
@@ -159,9 +167,7 @@ class SandboxFileEditor(FileEditor):
                 ),
             )
         # Binary check: NUL byte in the first 4KB.
-        head = self._sb("/usr/bin/head", "-c", "4096", str(path), "|", "/usr/bin/od", "-An", "-tx1")
-        # od output is hex bytes; a "00" token means binary.
-        # Simpler: use grep -c with a NUL pattern via shell.
+        # Binary check: NUL byte in the first 4KB via shell pipeline.
         is_bin = self._sb_ok(
             "/bin/sh", "-c", f"export PATH=/usr/local/bin:/usr/bin:/bin; head -c 4096 '{path}' | grep -qP '\\x00'"
         )
@@ -186,15 +192,15 @@ class SandboxFileEditor(FileEditor):
         # find with -maxdepth 1 mirrors the original's single-level listing
         # plus the root; formatting is inherited via _format_directory_entry
         # which needs Path objects — build them from the sandbox's listing.
-        out = self._sb("/usr/bin/find", str(path), "-maxdepth", "1", "-mindepth", "0")
+        out = self._sb("find", str(path), "-maxdepth", "1", "-mindepth", "0")
         names = [line for line in out.splitlines() if line.strip()]
         entries = [Path(n) for n in names]
         return [self._format_directory_entry(Path(str(path)), e) for e in entries]
 
     def _count_hidden_children(self, path: Path) -> int:
         out = self._sb(
-            "sh", "-c",
-            f"find '{path}' -maxdepth 1 -name '.*' -mindepth 1 | wc -l",
+            "/bin/sh", "-c",
+            f"export PATH=/usr/local/bin:/usr/bin:/bin; find '{path}' -maxdepth 1 -name '.*' -mindepth 1 | wc -l",
         )
         try:
             return int(out.strip())

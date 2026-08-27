@@ -63,9 +63,9 @@ def launch_sandbox_chromium(
     _sandbox_exec(
         session_id,
         [
-            "sh",
+            "/bin/sh",
             "-c",
-            f"nohup {chromium_path} --headless=new --no-sandbox "
+            f"export PATH=/usr/local/bin:/usr/bin:/bin; nohup {chromium_path} --headless=new --no-sandbox "
             f"--disable-gpu --disable-dev-shm-usage "
             f"--remote-debugging-address=127.0.0.1 "
             f"--remote-debugging-port={cdp_port} "
