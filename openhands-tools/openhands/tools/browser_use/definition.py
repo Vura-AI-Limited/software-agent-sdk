@@ -839,9 +839,22 @@ class BrowserToolSet(ToolDefinition[BrowserAction, BrowserObservation]):
     ) -> list[ToolDefinition[BrowserAction, BrowserObservation]]:
         try:
             executor = cls._get_or_create_shared_executor(conv_state, **executor_config)
-        except Exception:
-            # A browser that cannot start must not fail the whole conversation;
-            # the agent keeps working with its remaining tools.
+        except Exception as e:
+            # SANDBOX MODE IS NOT BEST-EFFORT. Passing sandbox_session_id means
+            # the caller stood up a session specifically so the agent could
+            # drive a browser in it; degrading to "no browser" turns a broken
+            # transport into a silent capability loss. That is exactly how a
+            # dead CDP relay went undiagnosed for four full pipeline runs: the
+            # agent kept being told to verify the UI visually, found no browser
+            # tool, and the only trace was a warning nobody could see.
+            if executor_config.get("sandbox_session_id"):
+                raise RuntimeError(
+                    "Sandbox browser tools failed to start for session "
+                    f"{executor_config['sandbox_session_id']}: {e}"
+                ) from e
+            # Local/dev mode keeps the upstream best-effort behaviour: there is
+            # no explicit request for a browser, so the agent carries on with
+            # its remaining tools.
             _logger.warning(
                 "Browser tools are unavailable: the browser executor failed to "
                 "start. Continuing without them.",
