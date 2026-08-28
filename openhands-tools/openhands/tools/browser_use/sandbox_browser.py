@@ -6,17 +6,19 @@ so the browser shares the session's network namespace with the dev servers
 credentials and no egress by default.
 
 The trusted agent-server connects to the in-session Chromium over CDP
-(browser-use's BrowserProfile.cdp_url). Transport note: sandboxes expose
-no TCP ports to the parent, so the CDP endpoint must be reachable from the
-trusted side — the launch uses ``--remote-debugging-port`` on the session's
-loopback plus the sandbox CLI's port-forwarding if available, falling back
-to a documented spike item (see CDP_TRANSPORT_SPIKE below).
+(browser-use's BrowserProfile.cdp_url). Sandboxes expose NO TCP ports to the
+parent, so the CDP endpoint is bridged over ``sandbox exec`` stdio by
+:mod:`sandbox_cdp_relay` — spike option 3, now implemented. ``launch_sandbox
+_chromium`` returns the relay's URL on the trusted side, not the in-session
+one, so browser-use can dial it like any ordinary CDP endpoint.
 """
 
 import subprocess
 import time
 
 from openhands.sdk.logger import get_logger
+
+from openhands.tools.browser_use.sandbox_cdp_relay import SandboxCdpRelay
 
 
 logger = get_logger(__name__)
@@ -28,6 +30,11 @@ CDP_PORT = 9222
 
 # How long to wait for Chromium's CDP endpoint to answer /json/version.
 CDP_READY_TIMEOUT_S = 20.0
+
+# Live relays keyed by session id, so stop_sandbox_chromium() can close the
+# listener. A leaked listener would hold port 9222 and make the NEXT session's
+# relay fail to bind (see SandboxCdpRelay.start).
+_RELAYS: dict[str, SandboxCdpRelay] = {}
 
 
 def _sandbox_exec(session_id: str, args: list[str], timeout: float = 30.0) -> str:
@@ -49,11 +56,29 @@ def launch_sandbox_chromium(
 ) -> str:
     """Launch headless Chromium inside the sandbox session with CDP enabled.
 
-    Returns the CDP URL for browser-use's BrowserProfile.cdp_url.
+    Returns the CDP URL for browser-use's BrowserProfile.cdp_url. That URL
+    points at the stdio relay on the TRUSTED side, which forwards into the
+    session — the in-session port is unreachable from here (no sandbox ports).
 
     The Chromium process is detached inside the session (nohup) so it
     survives this exec invocation; the session is stateful.
     """
+    # socat carries CDP across the sandbox boundary. Without it the browser
+    # silently has no transport, which is exactly the failure this replaces,
+    # so check up front and say so plainly.
+    try:
+        _sandbox_exec(
+            session_id,
+            ["/bin/sh", "-c",
+             "export PATH=/usr/local/bin:/usr/bin:/bin; command -v socat"],
+            timeout=10.0,
+        )
+    except RuntimeError as e:
+        raise RuntimeError(
+            "socat is not available inside the sandbox session; the CDP relay "
+            "cannot bridge the browser to the trusted side. Install socat in "
+            f"the ticket-runner image rootfs. ({e})"
+        ) from e
     # Kill any stale Chromium from a previous attempt in this session.
     _sandbox_exec(
         session_id,
@@ -85,7 +110,12 @@ def launch_sandbox_chromium(
                 logger.info(
                     f"sandbox chromium ready (session={session_id}, port={cdp_port})"
                 )
-                return f"http://127.0.0.1:{cdp_port}"
+                # Chromium is up INSIDE the session. Stand up the relay so the
+                # trusted side has something to dial, and hand back its URL.
+                relay = SandboxCdpRelay(session_id, cdp_port)
+                url = relay.start()
+                _RELAYS[session_id] = relay
+                return url
         except RuntimeError:
             pass  # not up yet
         time.sleep(0.5)
@@ -101,7 +131,10 @@ def launch_sandbox_chromium(
 
 
 def stop_sandbox_chromium(session_id: str) -> None:
-    """Best-effort: kill the in-session Chromium."""
+    """Best-effort: kill the in-session Chromium and close its relay."""
+    relay = _RELAYS.pop(session_id, None)
+    if relay is not None:
+        relay.stop()
     try:
         _sandbox_exec(
             session_id,
@@ -111,14 +144,15 @@ def stop_sandbox_chromium(session_id: str) -> None:
         logger.debug(f"chromium stop: {e}")
 
 
-# ── CDP TRANSPORT SPIKE (Phase 0) ──────────────────────────────────────────
-# Sandboxes expose NO TCP ports to the parent instance. The CDP URL above
-# (127.0.0.1:9222) is reachable INSIDE the session (dev servers + Chromium
-# share the namespace) but the trusted agent-server lives OUTSIDE it.
-# Options to validate in the Phase 0 spike:
-#   1. Does the sandbox CLI offer port-forwarding to the parent?
-#   2. Does CDP-over-unix-socket work (Chromium --remote-debugging-pipe +
-#      browser-use cdp_url accepting a pipe transport)?
-#   3. Can socat in the session bridge CDP to a channel the CLI exposes?
-# Until resolved, visual verification on Cloud Run uses the artifact model:
-# screenshots are captured INSIDE the session and exported (migration plan §4).
+# ── CDP TRANSPORT (Phase 0 spike — RESOLVED) ───────────────────────────
+# Sandboxes expose NO TCP ports to the parent instance, so the in-session CDP
+# port is not directly dialable from the trusted agent-server. Of the three
+# candidate transports:
+#   1. sandbox CLI port-forwarding — no such subcommand exists.
+#   2. CDP-over-unix-socket (--remote-debugging-pipe) — browser-use's cdp_url
+#      takes an http/ws URL only; it has no pipe transport.
+#   3. socat bridging CDP over `sandbox exec` stdio — IMPLEMENTED, see
+#      sandbox_cdp_relay.py. stdio is already proven byte-exact across the
+#      boundary (the workspace tarball streams over it).
+# The artifact fallback described in migration plan §4 is no longer needed:
+# the agent drives a real browser and sees real pages with its own vision.
