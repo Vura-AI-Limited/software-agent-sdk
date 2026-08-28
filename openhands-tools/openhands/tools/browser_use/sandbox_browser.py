@@ -80,9 +80,16 @@ def launch_sandbox_chromium(
             f"the ticket-runner image rootfs. ({e})"
         ) from e
     # Kill any stale Chromium from a previous attempt in this session.
+    #
+    # The bracket in "[r]emote-debugging-port" is load-bearing. `pkill -f`
+    # matches full command lines, and this pkill's OWN command line contains
+    # the pattern, so an unbracketed pattern makes pkill SIGTERM its own shell:
+    # the exec died with 143 every single time. The bracketed character class
+    # matches the running Chromium (whose argv has the literal text) but not
+    # this command line (which has the brackets).
     _sandbox_exec(
         session_id,
-        ["/bin/sh", "-c", "export PATH=/usr/local/bin:/usr/bin:/bin; pkill -f remote-debugging-port 2>/dev/null; true"],
+        ["/bin/sh", "-c", "export PATH=/usr/local/bin:/usr/bin:/bin; pkill -f '[r]emote-debugging-port' 2>/dev/null; true"],
     )
     # Launch detached headless Chromium with CDP on the session's loopback.
     _sandbox_exec(
