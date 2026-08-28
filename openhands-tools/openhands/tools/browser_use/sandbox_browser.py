@@ -97,8 +97,18 @@ def launch_sandbox_chromium(
         [
             "/bin/sh",
             "-c",
-            f"export PATH=/usr/local/bin:/usr/bin:/bin; nohup {chromium_path} --headless=new --no-sandbox "
+            f"export PATH=/usr/local/bin:/usr/bin:/bin; "
+            # HOME is unset inside the sandbox (the CLI strips the environment),
+            # so Chromium tried to build its profile under a path it could not
+            # create and died with "Failed to create headless user data
+            # directory container". Both the profile and the crash-dump dir must
+            # be pointed at somewhere writable, and /tmp is the session's only
+            # guaranteed-writable location.
+            f"export HOME=/tmp; mkdir -p /tmp/chromium-profile; "
+            f"nohup {chromium_path} --headless=new --no-sandbox "
             f"--disable-gpu --disable-dev-shm-usage "
+            f"--user-data-dir=/tmp/chromium-profile "
+            f"--crash-dumps-dir=/tmp/chromium-profile/crashes "
             f"--remote-debugging-address=127.0.0.1 "
             f"--remote-debugging-port={cdp_port} "
             f"about:blank > /tmp/chromium.log 2>&1 & echo $! > /tmp/chromium.pid",
