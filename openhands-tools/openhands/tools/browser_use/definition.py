@@ -823,8 +823,27 @@ class BrowserToolSet(ToolDefinition[BrowserAction, BrowserObservation]):
 
             from openhands.tools.browser_use.impl import BrowserToolExecutor
 
+            # WHERE THE CAPTURES LAND MATTERS IN SANDBOX MODE.
+            # By default screenshots go to <persistence_dir>/observations,
+            # which lives on the TRUSTED side. But the agent's terminal runs
+            # INSIDE the sandbox, so it cannot see that directory at all: its
+            # `find / -name 'browser_screenshot_*.png'` returns nothing, it
+            # has no file to copy into tmp/visual-screenshots/, and the
+            # pipeline's visual gate then correctly reports every checklist
+            # screenshot as "does not exist on disk". The agent was being
+            # asked to copy a file it had no way to reach.
+            #
+            # The host workspace dir IS bind-mounted into the session at
+            # /workspace, so writing captures underneath it puts them on both
+            # sides of the boundary at once — the same bytes, one path the
+            # agent can actually reach.
+            save_dir = conv_state.env_observation_persistence_dir
+            browser_save_dir = executor_config.pop("browser_save_dir", None)
+            if browser_save_dir:
+                save_dir = browser_save_dir
+
             executor = BrowserToolExecutor(
-                full_output_save_dir=conv_state.env_observation_persistence_dir,
+                full_output_save_dir=save_dir,
                 **executor_config,
             )
             with cls._shared_executor_lock:
