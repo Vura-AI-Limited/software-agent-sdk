@@ -224,9 +224,28 @@ class SandboxTerminal(TerminalInterface):
             return
 
         # 3) Plain text — literal paste (tmux -L inside the sandbox).
-        #    Shell-quote the text so tmux receives it verbatim.
-        quoted = "'" + text.replace("'", "'\\''") + "'"
-        self._tmux("send-keys", "-t", self._pane_id, "-l", quoted)
+        #
+        # DO NOT shell-quote. `_sandbox_exec` runs
+        #     subprocess.run([SANDBOX_BIN, "exec", id, "--", *args])
+        # with a LIST and no shell, and `sandbox exec` passes argv straight
+        # to execve. There is no shell anywhere on this path to strip
+        # quotes, so wrapping the text in `'...'` made tmux paste the quote
+        # characters themselves. bash then saw one giant word:
+        #
+        #   bash: cd ./api && npm install --no-audit --no-fund:
+        #         No such file or directory        (exit 127)
+        #
+        # Every multi-word command the agent typed failed that way, and the
+        # message reads as a MISSING FILE, so the agent concluded its tools
+        # were absent and went hunting for them — `which npm`, then
+        # `find / -name npm`, which failed identically. Observed 2026-09-03:
+        # ~11 minutes of a ticket's budget spent before it recovered.
+        #
+        # `-l` already means "literal": tmux does not split or interpret the
+        # argument, which is exactly what the quoting was meant to achieve.
+        # TmuxTerminal (the working backend) passes literal=True and adds no
+        # quoting of its own.
+        self._tmux("send-keys", "-t", self._pane_id, "-l", text)
         if enter and not text.endswith("\n"):
             self._tmux("send-keys", "-t", self._pane_id, "Enter")
 
